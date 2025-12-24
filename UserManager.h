@@ -5,24 +5,15 @@
 #include <string>
 
 class UserManager {
-private:
-    User* currentUser;
-    std::string encryptDecrypt(std::string data);
-
+    private:
+    std::string filename = "user_data.dat";
 public:
     UserManager();
-    
-    // 用户操作
-    bool registerUser(SystemContext& ctx, std::string name, std::string pwd, UserType type, std::string group);
-    bool login(SystemContext& ctx, std::string name, std::string pwd);
-    void logout(SystemContext& ctx);
 
-    // 权限检查核心
-    bool checkPermission(const Inode& inode, int opPermission);
-
-    // 获取当前状态
-    User* getCurrentUser() const;
-    bool isLoggedIn() const;
+    void saveUsersToFile(SystemContext& ctx);
+    void loadUsers(SystemContext &ctx);
+    void SwitchUser(SystemContext &ctx, const std::vector<std::string> &args);
+    void AddUser(SystemContext &ctx, int targetId);
 };
 
 #endif

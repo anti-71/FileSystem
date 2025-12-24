@@ -1,16 +1,14 @@
 #include "DiskManager.h"
-#include <fstream>
-#include <iostream>
-#include <cstring>
-#include <ctime>
 
 DiskManager::DiskManager()
 {
     vDisk = new VirtualDisk();
 }
 
-DiskManager::~DiskManager() {
-    if (vDisk != nullptr) {
+DiskManager::~DiskManager()
+{
+    if (vDisk != nullptr)
+    {
         saveToDisk(); // 最后一次自动强制保存
         delete vDisk; // 释放 4MB+ 的堆内存
         vDisk = nullptr;
@@ -228,23 +226,6 @@ bool DiskManager::addBlockToInode(int inodeId, int blockId)
     }
 
     return false; // 文件太大，超出支撑范围
-}
-
-bool DiskManager::saveUsers(const UserList &uList)
-{
-    std::ofstream ofs("user_data.dat", std::ios::binary);
-    if (!ofs)
-        return false;
-    // 写入用户数量
-    int count = uList.users.size();
-    ofs.write(reinterpret_cast<const char *>(&count), sizeof(int));
-    // 循环写入每个用户结构
-    for (const auto &user : uList.users)
-    {
-        ofs.write(reinterpret_cast<const char *>(&user), sizeof(User));
-    }
-    ofs.close();
-    return true;
 }
 
 void DiskManager::logAction(const std::string &username, const std::string &command, const std::string &result)

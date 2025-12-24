@@ -1,11 +1,9 @@
 #include "Shell.h"
-#include <iostream>
-#include <sstream>
 
-void Shell::run(DiskManager &dm, UserManager &um, DirectoryManager &dirM, FileManager &fileM, SystemContext &ctx)
+void Shell::run(UserManager &um, SystemContext &ctx)
 {
     std::string input;
-    std::cout << "Welcome to MiniFS (Type 'help' for commands)" << std::endl;
+    std::cout << "欢迎使用FS！ (输入'help'获取指令列表)" << std::endl;
 
     while (true)
     {
@@ -13,26 +11,24 @@ void Shell::run(DiskManager &dm, UserManager &um, DirectoryManager &dirM, FileMa
         if (!std::getline(std::cin, input))
             break; // 处理 Ctrl+C 等异常退出
         if (input.empty())
-            continue;
+            continue; // 忽略空输入
         std::vector<std::string> args = parseInput(input);
-
         std::string cmd = args[0];
 
         if (cmd == "exit" || cmd == "logout")
         {
-            dm.saveToDisk();
-            dm.saveUsers(ctx.uList);
-            // 如果 SystemContext 里没存 currentUser，我们从 UserManager 获取
-            std::string uname = um.getCurrentUser() ? um.getCurrentUser()->username : "Guest";
-            dm.logAction(uname, "exit", "Success");
 
-            std::cout << "Saving data and exiting... Goodbye!" << std::endl;
+            // dm.saveToDisk();
+            um.saveUsersToFile(ctx);
+            // dm.logAction(uname, "exit", "Success");
+            std::cout << "再见！" << std::endl;
             break;
         }
-        executeCommand(args, dm, um, dirM, fileM, ctx);
+        executeCommand(args, um, ctx);
     }
 }
 
+// 解析用户输入的命令行参数
 std::vector<std::string> Shell::parseInput(const std::string &input)
 {
     std::vector<std::string> args;
@@ -45,13 +41,23 @@ std::vector<std::string> Shell::parseInput(const std::string &input)
     return args;
 }
 
+// 实时输出 context 里的信息
 void Shell::printPrompt(SystemContext &ctx)
 {
-    // 实时读取 context 里的信息
-    std::cout << "[" << ctx.currentUser.username << "@MiniFS " << ctx.currentDir.path << "]$ ";
+    std::cout << "[";
+    if (ctx.currentUser.userId == 0)
+    {
+        std::cout << "管理员";
+    }
+    else
+    {
+        std::cout << "用户" << ctx.currentUser.userId;
+    }
+    std::cout << "@FS" << "]$ ";
 }
 
-void Shell::executeCommand(const std::vector<std::string> &args, DiskManager &dm, UserManager &um, DirectoryManager &dirM, FileManager &fileM, SystemContext &ctx)
+// 执行命令
+void Shell::executeCommand(const std::vector<std::string> &args, UserManager &um, SystemContext &ctx)
 {
     std::string cmd = args[0];
 
@@ -61,110 +67,91 @@ void Shell::executeCommand(const std::vector<std::string> &args, DiskManager &dm
     }
     else if (cmd == "su")
     {
-        if (args.size() < 2)
-        {
-            std::cout << "用法: su <用户ID>" << std::endl;
-        }
-        else
-        {
-            // 将输入的字符串转为整数 ID
-            int newId = std::stoi(args[1]);
-            ctx.currentUser.userId = newId;
-            // 简单的名称映射逻辑
-            if (newId == 0)
-            {
-                ctx.currentUser.username = "root";
-            }
-            else
-            {
-                std::string tempName = "User" + std::to_string(newId);
-                ctx.currentUser.username = tempName;
-            }
-            std::cout << "身份已切换至UID: " << ctx.currentUser.userId
-                      << " (" << ctx.currentUser.username << ")" << std::endl;
-        }
+        um.SwitchUser(ctx, args);
     }
-    else if (cmd == "ls")
-    {
-        dirM.ls(dm, ctx);
-    }
-    else if (cmd == "cd")
-    {
-        std::string target = (args.size() < 2) ? "/" : args[1];
-        int targetInode = dirM.resolvePath(dm, ctx.currentDir.currentInodeId, target);
+    // else if (cmd == "ls")
+    // {
+    //     dirM.ls(dm, ctx);
+    // }
+    // else if (cmd == "cd")
+    // {
+    //     std::string target = (args.size() < 2) ? "/" : args[1];
+    //     int targetInode = dirM.resolvePath(dm, ctx.currentDir.currentInodeId, target);
 
-        if (targetInode != -1 && dm.getInode(targetInode)->type == F_DIR)
-        {
-            // 更新 ID
-            ctx.currentDir.currentInodeId = targetInode;
-            // 更新规范化后的路径
-            ctx.currentDir.path = normalizePath(ctx.currentDir.path, target);
-        }
-        else
-        {
-            std::cout << "cd: " << target << ": No such directory" << std::endl;
-        }
-    }
-    else if (cmd == "mkdir")
-    {
-        if (args.size() < 2)
-            std::cout << "Usage: mkdir <dirname>" << std::endl;
-        else
-            dirM.mkdir(dm, ctx, args[1]);
-    }
-    else if (cmd == "touch")
-    {
-        if (args.size() < 2)
-            std::cout << "Usage: touch <filename>" << std::endl;
-        else
-            fileM.create(dm, dirM, ctx, args[1]);
-    }
-    else if (cmd == "cat")
-    {
-        if (args.size() < 2)
-            std::cout << "Usage: cat <filename>" << std::endl;
-        else
-        {
-            int fd = fileM.open(dm, dirM, ctx, args[1], READ);
-            if (fd != -1)
-            {
-                std::cout << fileM.read(dm, ctx, fd, 1024) << std::endl;
-                fileM.close(ctx, fd);
-            }
-        }
-    }
-    else if (cmd == "write")
-    {
-        if (args.size() < 3)
-            std::cout << "Usage: write <filename> <content>" << std::endl;
-        else
-        {
-            int fd = fileM.open(dm, dirM, ctx, args[1], WRITE);
-            if (fd != -1)
-            {
-                fileM.write(dm, ctx, fd, args[2]);
-                fileM.close(ctx, fd);
-            }
-        }
-    }
-    else if (cmd == "pwd")
-    {
-        std::cout << ctx.currentDir.path << std::endl;
-    }
-    else
-    {
-        std::cout << "Invalid command: " << cmd << ". Type 'help' for list." << std::endl;
-    }
+    //     if (targetInode != -1 && dm.getInode(targetInode)->type == F_DIR)
+    //     {
+    //         // 更新 ID
+    //         ctx.currentDir.currentInodeId = targetInode;
+    //         // 更新规范化后的路径
+    //         ctx.currentDir.path = normalizePath(ctx.currentDir.path, target);
+    //     }
+    //     else
+    //     {
+    //         std::cout << "cd: " << target << ": No such directory" << std::endl;
+    //     }
+    // }
+    // else if (cmd == "mkdir")
+    // {
+    //     if (args.size() < 2)
+    //         std::cout << "Usage: mkdir <dirname>" << std::endl;
+    //     else
+    //         dirM.mkdir(dm, ctx, args[1]);
+    // }
+    // else if (cmd == "touch")
+    // {
+    //     if (args.size() < 2)
+    //         std::cout << "Usage: touch <filename>" << std::endl;
+    //     else
+    //         fileM.create(dm, dirM, ctx, args[1]);
+    // }
+    // else if (cmd == "cat")
+    // {
+    //     if (args.size() < 2)
+    //         std::cout << "Usage: cat <filename>" << std::endl;
+    //     else
+    //     {
+    //         int fd = fileM.open(dm, dirM, ctx, args[1], READ);
+    //         if (fd != -1)
+    //         {
+    //             std::cout << fileM.read(dm, ctx, fd, 1024) << std::endl;
+    //             fileM.close(ctx, fd);
+    //         }
+    //     }
+    // }
+    // else if (cmd == "write")
+    // {
+    //     if (args.size() < 3)
+    //         std::cout << "Usage: write <filename> <content>" << std::endl;
+    //     else
+    //     {
+    //         int fd = fileM.open(dm, dirM, ctx, args[1], WRITE);
+    //         if (fd != -1)
+    //         {
+    //             fileM.write(dm, ctx, fd, args[2]);
+    //             fileM.close(ctx, fd);
+    //         }
+    //     }
+    // }
+    // else if (cmd == "pwd")
+    // {
+    //     std::cout << ctx.currentDir.path << std::endl;
+    // }
+    // else
+    // {
+    //     std::cout << "Invalid command: " << cmd << ". Type 'help' for list." << std::endl;
+    // }
 }
 
+// 显示指令列表
 void Shell::showHelp()
 {
-    std::cout << "Supported commands:\n"
-              << "  ls                List directory contents\n"
-              << "  mkdir <name>      Create a directory\n"
-              << "  touch <name>      Create an empty file\n"
-              << "  cat <name>        Display file content\n"
-              << "  write <name> <msg> Write message to file\n"
-              << "  pwd               Show current path\n"
-              << "  exit/logout       Save and exit system" << std::endl;
+    std::cout << "支持的指令:\n"
+              << "  ls                  列出目录内容\n"
+              << "  mkdir <名称>        创建目录\n"
+              << "  touch <名称>        创建空文件\n"
+              << "  cat   <名称>        显示文件内容\n"
+              << "  write <名称> <内容> 向文件写入信息\n"
+              << "  pwd                 显示当前路径\n"
+              << "  su    <用户ID>      切换用户（不存在则自动创建）\n"
+              << "  exit/logout         保存并退出系统" << std::endl;
 }
