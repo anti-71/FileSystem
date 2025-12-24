@@ -1,6 +1,6 @@
 #include "Shell.h"
 
-void Shell::run(UserManager &um, SystemContext &ctx)
+void Shell::run(DiskManager &dm, UserManager &um, SystemContext &ctx)
 {
     std::string input;
     std::cout << "欢迎使用FS！ (输入'help'获取指令列表)" << std::endl;
@@ -19,7 +19,7 @@ void Shell::run(UserManager &um, SystemContext &ctx)
         {
 
             // dm.saveToDisk();
-            um.saveUsersToFile(ctx);
+            um.SaveUsersToFile(ctx);
             // dm.logAction(uname, "exit", "Success");
             std::cout << "再见！" << std::endl;
             break;

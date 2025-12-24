@@ -4,80 +4,53 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <cstring>
 #include <ctime>
 #include <windows.h>
 #include <fstream>
-#include <algorithm> 
+#include <algorithm>
 #include <sstream>
+#include <cstdint>
+#include <sys/stat.h>
 
 // --- 基础常量定义 ---
-const int BLOCK_SIZE = 1024;       // 数据块大小 1KB
-const int MAX_INODES = 1024;       // 最大 Inode 数量
-const int MAX_DATA_BLOCKS = 4096;  // 最大数据块数量
-const int DIRECT_INDEX_COUNT = 10; // 直接索引数量
-const std::string DISK_PATH = "virtual_disk.img";
-const std::string USER_DATA_PATH = "user_data.dat";
+#define BLOCK_SIZE 512
+#define TOTAL_BLOCKS 32768
+#define BITMAP_SIZE 8
+#define INODES_PER_BLOCK 4
 
-// 权限位定义 (类 Linux)
-const int S_IRUSR = 0400; // 所有者读
-const int S_IWUSR = 0200; // 所有者写
-const int S_IXUSR = 0100; // 所有者执行
-const int S_IRGRP = 0040; // 组读
-const int S_IWGRP = 0020; // 组写
-const int S_IXGRP = 0010; // 组执行
-const int S_IROTH = 0004; // 其他人读
-const int S_IWOTH = 0002; // 其他人写
-const int S_IXOTH = 0001; // 其他人执行
+const std::string VDISK_PATH = "vdisk.img";
 
 // ================= 用户相关结构体 =================
+
 struct User
 {
     int userId;
 };
 
-struct UserList
-{
-    std::vector<User> users;
-};
-
 // ================= 文件系统元数据结构体 =================
 
+// 超级块结构：占用 1 个块 (512B)，实际只用了前面一部分
 struct SuperBlock
 {
-    long totalDiskSize; // 虚拟磁盘总大小
-    int blockSize;      // 块大小
-    int inodeTotal;     // inode 总数
-    int inodeFree;      // 空闲 inode 数
-    int dataBlockTotal; // 数据块总数
-    int dataBlockFree;  // 空闲数据块总数
-    int rootInodeId;    // 根目录 inode 编号
+    uint32_t total_blocks; // 总块数
+    uint32_t free_blocks;  // 空闲块数
 
-    bool inodeBitmap[MAX_INODES];          // inode 位图
-    bool dataBlockBitmap[MAX_DATA_BLOCKS]; // 数据块位图
-};
+    uint32_t bitmap_start; // 位图区起始块号
+    uint32_t inode_start;  // Inode区起始块号
+    uint32_t data_start;   // 数据区起始块号
 
-enum FileType
-{
-    F_FILE,
-    F_DIRECTORY
+    char padding[488]; // 填充至 512 字节
 };
 
 struct Inode
 {
-    int inodeId;       // 唯一标识
-    int ownerId;       // 所有者 ID
-    int groupId;       // 所属组 ID
-    int permissions;   // 权限位，如 0755
-    FileType type;     // 文件或目录
-    long fileSize;     // 文件大小
-    time_t createdAt;  // 创建时间
-    time_t modifiedAt; // 修改时间
-    time_t accessedAt; // 访问时间
-
-    int directIndices[DIRECT_INDEX_COUNT]; // 直接索引
-    int firstIndirectIndex;                // 一级间接索引
-    int secondIndirectIndex;               // 二级间接索引
-    int linkCount;                         // 引用计数
+    uint32_t inode_id;       // Inode 编号
+    uint32_t mode;           // 模式：0 代表空闲，1 代表文件，2 代表目录
+    uint32_t size;           // 文件大小（字节）
+    uint32_t block_count;    // 已占用的数据块数量
+    uint32_t direct_ptr[10]; // 直接索引：记录该文件占用的物理块号
+    char padding[68];        // 填充至 128 字节
 };
 
 // ================= 树状目录支撑结构体 =================
@@ -135,15 +108,6 @@ struct DataBlock
     char data[BLOCK_SIZE]; // 实际存储内容的字节数组
 };
 
-struct VirtualDisk
-{
-    SuperBlock sBlock;
-    Inode inodes[MAX_INODES];
-    DataBlock blocks[MAX_DATA_BLOCKS];
-
-    // 该结构体可以整体持久化到本地二进制文件
-};
-
 // 每个目录项固定 64 字节，一个 1KB 的块可以存 16 个记录
 struct DirRecord
 {
@@ -155,8 +119,8 @@ struct DirRecord
 // 系统内容结构体
 struct SystemContext
 {
-    UserList uList;   // 用户列表
-    User currentUser; // 当前用户
+    std::vector<User> uList; // 用户列表
+    User currentUser;        // 当前用户
     // CurrentDir currentDir;                 // 当前目录
     // std::vector<FileDescriptor> openFiles; // 打开的文件列表
 };

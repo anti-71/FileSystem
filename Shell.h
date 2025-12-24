@@ -1,7 +1,7 @@
 #ifndef SHELL_H
 #define SHELL_H
 
-// #include "DiskManager.h"
+#include "DiskManager.h"
 // #include "DirectoryManager.h"
 // #include "FileManager.h"
 #include "UserManager.h"
@@ -11,7 +11,7 @@
 class Shell
 {
 public:
-    void run(UserManager &um, SystemContext &ctx);
+    void run(DiskManager &dm, UserManager &um, SystemContext &ctx);
 
 private:
     std::vector<std::string> parseInput(const std::string &input);
