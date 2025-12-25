@@ -1,8 +1,9 @@
 #include "DiskManager.h"
 #include "UserManager.h"
-// #include "DirectoryManager.h"
-// #include "FileManager.h"
+#include "DirectoryManager.h"
+#include "FileManager.h"
 #include "Shell.h"
+#include "FileSystem.h"
 
 int main()
 {
@@ -10,8 +11,8 @@ int main()
 
     DiskManager dm(VDISK_PATH);
     UserManager um;
-    // DirectoryManager dirM;
-    // FileManager fileM;
+    DirectoryManager dirm(dm);
+    FileManager fm(dm, dirm);
     SystemContext ctx;
     Shell shell;
 
@@ -25,7 +26,9 @@ int main()
     {
         std::cout << "检测到镜像不存在，正在进行首次初始化..." << std::endl;
         dm.InitializeDisk(VDISK_PATH);
+        dirm.InitializeRoot();
     }
+    dm.Mount();
 
     // // 2. 初始化上下文 (从根目录开始)
     // ctx.currentDir.currentInodeId = 0;

@@ -17,8 +17,7 @@ void Shell::run(DiskManager &dm, UserManager &um, SystemContext &ctx)
 
         if (cmd == "exit" || cmd == "logout")
         {
-
-            // dm.saveToDisk();
+            dm.UnMount();
             um.SaveUsersToFile(ctx);
             // dm.logAction(uname, "exit", "Success");
             std::cout << "再见！" << std::endl;

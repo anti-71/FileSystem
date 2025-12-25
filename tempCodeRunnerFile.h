@@ -1,1 +1,0 @@
-VDISK_PATH

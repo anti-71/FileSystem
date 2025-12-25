@@ -64,14 +64,11 @@ bool DiskManager::InitializeDisk(const std::string &path)
     fs.write(reinterpret_cast<char *>(bitmap.data()), bitmap.size());
 
     // 5. 准备并写入空的 Inode 区 (Block 9 - 1032)
-    // 虽然文件已经是 0 了，但显式初始化一个根目录 Inode 是个好习惯
     // 这里暂时只填充全 0
     std::vector<char> empty_block(BLOCK_SIZE, 0);
     fs.seekp(BLOCK_SIZE * 9);
     for (int i = 0; i < 1024; ++i)
-    {
         fs.write(empty_block.data(), BLOCK_SIZE);
-    }
 
     fs.close();
     return true;
@@ -108,8 +105,8 @@ bool DiskManager::Mount()
         return false;
     }
 
-    std::cout << "磁盘已挂载:总块数: " << sb.total_blocks
-              << ", 空闲块: " << sb.free_blocks << std::endl;
+    // std::cout << "磁盘已挂载:总块数: " << sb.total_blocks
+    //           << ", 空闲块: " << sb.free_blocks << std::endl;
     return true;
 }
 
@@ -264,5 +261,51 @@ bool DiskManager::WriteInode(uint32_t inode_id, const Inode &node)
     // 4. 写回整个块 (写)
     if (!WriteBlock(target_block, buffer))
         return false;
+    return true;
+}
+
+// 分配一个空闲的 inode
+int AllocateInode()
+{
+    Inode temp_node;
+    // 遍历所有可能的 Inode 编号
+    // 总块数 1024 块 * 每块 4 个 Inode = 4096 个
+    for (uint32_t i = 0; i < 4096; ++i)
+    {
+        if (!ReadInode(i, temp_node))
+            continue;
+        // 如果 mode 为 0，说明此 Inode 槽位空闲
+        if (temp_node.mode == 0)
+        {
+            // 立即初始化该 Inode，防止被重复分配
+            memset(&temp_node, 0, sizeof(Inode));
+            temp_node.inode_id = i;
+            // 暂时给一个非 0 值标记为已占用，后续由 FileManager 修改具体 mode
+            temp_node.mode = 1;
+            if (WriteInode(i, temp_node))
+                return i; // 返回找到的 Inode 编号
+        }
+    }
+    std::cerr << "错误：没有可用的 inode!" << endl;
+    return -1; 
+}
+
+// 初始化 Inode
+bool DiskManager::InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id)
+{
+    Inode newNode;
+    // 1. 清空内存，确保 padding 和未使用的指针为 0
+    memset(&newNode, 0, sizeof(Inode));
+    // 2. 设置基础元数据
+    newNode.inode_id = inode_id;
+    newNode.mode = mode;        
+    newNode.size = 0;          
+    newNode.block_count = 1;     // 初始占用 1 个块
+    // 3. 建立物理映射
+    newNode.direct_ptr[0] = block_id;
+    // 4. 调用 DiskManager 的接口将 Inode 写入磁盘
+    if (!disk.WriteInode(inodeId, newNode)) 
+        return false;
+
     return true;
 }
