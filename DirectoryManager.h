@@ -14,6 +14,7 @@ public:
     bool InitializeRoot();
     bool AddDirEntry(uint32_t currentInodeId, const std::string &fileName, uint32_t newInodeId);
     uint32_t FindInodeId(const std::string &name, uint32_t currentDirInodeId);
+    std::vector<DirEntry> ListDirectory(uint32_t dirInodeId);
 };
 
 #endif

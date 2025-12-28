@@ -31,6 +31,7 @@ public:
     int AllocateInode();
     bool InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id);
     bool FreeInode(uint32_t inode_id);
-};
 
+    void DumpBitmapOccupiedPart();
+};
 #endif

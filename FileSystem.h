@@ -12,6 +12,8 @@
 #include <sstream>
 #include <cstdint>
 #include <sys/stat.h>
+#include <bitset>
+#include <iomanip>
 
 // --- 基础常量定义 ---
 #define BLOCK_SIZE 512

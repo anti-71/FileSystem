@@ -88,7 +88,6 @@ bool FileManager::DeleteFile(const std::string &name)
         // 写回目标块
         disk->WriteBlock(parentNode.direct_ptr[targetPtrIdx], targetBlockBuf);
     }
-
     // 4. 更新父目录元数据
     parentNode.size -= DIR_ENTRY_SIZE;
     // 如果 size 刚好退回到块边界，可以考虑减少 block_count
@@ -101,4 +100,41 @@ bool FileManager::DeleteFile(const std::string &name)
     // 写回父目录元数据
     disk->WriteInode(currentInodeId, parentNode);
     return true;
+}
+
+// 获取当前所在目录的 Inode 编号
+uint32_t FileManager::GetCurrentInodeId()
+{
+    return currentInodeId;
+}
+
+// 创建目录
+bool FileManager::MakeDirectory(const std::string &name)
+{
+    // 1. 分配 Inode
+    uint32_t newDirInodeId = disk->AllocateInode();
+    if (newDirInodeId == (uint32_t)-1)
+        return false;
+    // 2. 分配第一个数据块
+    uint32_t newDirBlockId = disk->AllocateBlock();
+    if (newDirBlockId == (uint32_t)-1)
+        return false;
+    // 3. 初始化 Inode (mode 设为 2 代表目录)
+    if (!disk->InitInode(newDirInodeId, 2, newDirBlockId))
+        return false;
+    // 4. 初始化目录项 (. 和 ..)
+    char buffer[BLOCK_SIZE] = {0};
+    DirEntry *entries = reinterpret_cast<DirEntry *>(buffer);
+    strncpy(entries[0].name, ".", 27);
+    entries[0].inode_id = newDirInodeId;
+    strncpy(entries[1].name, "..", 27);
+    entries[1].inode_id = currentInodeId; // 指向当前父目录
+    disk->WriteBlock(newDirBlockId, buffer);
+    // 5. 设置 Inode 大小并写回
+    Inode node;
+    disk->ReadInode(newDirInodeId, node);
+    node.size = 2 * sizeof(DirEntry);
+    disk->WriteInode(newDirInodeId, node);
+    // 6. 在父目录中添加该目录项
+    return dir->AddDirEntry(currentInodeId, name, newDirInodeId);
 }

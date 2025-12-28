@@ -28,17 +28,17 @@ int main()
         dm.InitializeDisk(VDISK_PATH);
         dirm.InitializeRoot();
     }
-    dm.Mount();
+    else
+        dm.Mount();
 
     // 测试
-    
 
     // // 2. 初始化上下文 (从根目录开始)
     // ctx.currentDir.currentInodeId = 0;
     // ctx.currentDir.path = "/";
 
     // 3. 启动 Shell
-    shell.run(dm, um, ctx);
+    shell.Run(dm, um, dirm, fm, ctx);
 
     return 0;
 }

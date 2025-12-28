@@ -17,6 +17,8 @@ public:
 
     bool CreateFile(const std::string &name);
     bool DeleteFile(const std::string &name);
+    uint32_t GetCurrentInodeId();
+    bool MakeDirectory(const std::string &name);
 };
 
 #endif

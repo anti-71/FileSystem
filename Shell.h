@@ -2,22 +2,22 @@
 #define SHELL_H
 
 #include "DiskManager.h"
-// #include "DirectoryManager.h"
-// #include "FileManager.h"
+#include "DirectoryManager.h"
+#include "FileManager.h"
 #include "UserManager.h"
-#include <string>
-#include <vector>
+#include "FileSystem.h"
 
 class Shell
 {
 public:
-    void run(DiskManager &dm, UserManager &um, SystemContext &ctx);
+    void Run(DiskManager &dm, UserManager &um, DirectoryManager &dirm, FileManager &fm, SystemContext &ctx);
 
 private:
-    std::vector<std::string> parseInput(const std::string &input);
-    void executeCommand(const std::vector<std::string> &args, UserManager &um, SystemContext &ctx);
-    void showHelp();
-    void printPrompt(SystemContext &ctx);
+    std::vector<std::string> ParseInput(const std::string &input);
+    void ExecuteCommand(const std::vector<std::string> &args, DiskManager &dm, UserManager &um, DirectoryManager &dirm, FileManager &fm, SystemContext &ctx);
+    void ShowHelp();
+    void PrintPrompt(SystemContext &ctx);
+    void ShowList(uint32_t currentInodeId, DirectoryManager &dir_mgr, DiskManager *disk);
 };
 
 #endif

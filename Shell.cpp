@@ -1,18 +1,18 @@
 #include "Shell.h"
 
-void Shell::run(DiskManager &dm, UserManager &um, SystemContext &ctx)
+void Shell::Run(DiskManager &dm, UserManager &um, DirectoryManager &dirm, FileManager &fm, SystemContext &ctx)
 {
     std::string input;
     std::cout << "欢迎使用FS！ (输入'help'获取指令列表)" << std::endl;
 
     while (true)
     {
-        printPrompt(ctx);
+        PrintPrompt(ctx);
         if (!std::getline(std::cin, input))
             break; // 处理 Ctrl+C 等异常退出
         if (input.empty())
             continue; // 忽略空输入
-        std::vector<std::string> args = parseInput(input);
+        std::vector<std::string> args = ParseInput(input);
         std::string cmd = args[0];
 
         if (cmd == "exit" || cmd == "logout")
@@ -23,12 +23,12 @@ void Shell::run(DiskManager &dm, UserManager &um, SystemContext &ctx)
             std::cout << "再见！" << std::endl;
             break;
         }
-        executeCommand(args, um, ctx);
+        ExecuteCommand(args, dm, um, dirm, fm, ctx);
     }
 }
 
 // 解析用户输入的命令行参数
-std::vector<std::string> Shell::parseInput(const std::string &input)
+std::vector<std::string> Shell::ParseInput(const std::string &input)
 {
     std::vector<std::string> args;
     std::stringstream ss(input);
@@ -41,7 +41,7 @@ std::vector<std::string> Shell::parseInput(const std::string &input)
 }
 
 // 实时输出 context 里的信息
-void Shell::printPrompt(SystemContext &ctx)
+void Shell::PrintPrompt(SystemContext &ctx)
 {
     std::cout << "[";
     if (ctx.currentUser.userId == 0)
@@ -56,22 +56,22 @@ void Shell::printPrompt(SystemContext &ctx)
 }
 
 // 执行命令
-void Shell::executeCommand(const std::vector<std::string> &args, UserManager &um, SystemContext &ctx)
+void Shell::ExecuteCommand(const std::vector<std::string> &args, DiskManager &dm, UserManager &um, DirectoryManager &dirm, FileManager &fm, SystemContext &ctx)
 {
     std::string cmd = args[0];
 
     if (cmd == "help")
     {
-        showHelp();
+        ShowHelp();
     }
     else if (cmd == "su")
     {
         um.SwitchUser(ctx, args);
     }
-    // else if (cmd == "ls")
-    // {
-    //     dirM.ls(dm, ctx);
-    // }
+    else if (cmd == "ls")
+    {
+        ShowList(fm.GetCurrentInodeId(), dirm, &dm);
+    }
     // else if (cmd == "cd")
     // {
     //     std::string target = (args.size() < 2) ? "/" : args[1];
@@ -89,13 +89,13 @@ void Shell::executeCommand(const std::vector<std::string> &args, UserManager &um
     //         std::cout << "cd: " << target << ": No such directory" << std::endl;
     //     }
     // }
-    // else if (cmd == "mkdir")
-    // {
-    //     if (args.size() < 2)
-    //         std::cout << "Usage: mkdir <dirname>" << std::endl;
-    //     else
-    //         dirM.mkdir(dm, ctx, args[1]);
-    // }
+    else if (cmd == "mkdir")
+    {
+        if (args.size() < 2)
+            std::cout << "用法: mkdir <dirname>" << std::endl;
+        else
+            fm.MakeDirectory(args[1]);
+    }
     // else if (cmd == "touch")
     // {
     //     if (args.size() < 2)
@@ -142,7 +142,7 @@ void Shell::executeCommand(const std::vector<std::string> &args, UserManager &um
 }
 
 // 显示指令列表
-void Shell::showHelp()
+void Shell::ShowHelp()
 {
     std::cout << "支持的指令:\n"
               << "  ls                  列出目录内容\n"
@@ -153,4 +153,22 @@ void Shell::showHelp()
               << "  pwd                 显示当前路径\n"
               << "  su    <用户ID>      切换用户（不存在则自动创建）\n"
               << "  exit/logout         保存并退出系统" << std::endl;
+}
+
+// 显示目录内容的详细信息
+void Shell::ShowList(uint32_t currentInodeId, DirectoryManager &dir_mgr, DiskManager *disk)
+{
+    std::vector<DirEntry> entries = dir_mgr.ListDirectory(currentInodeId);
+    for (const auto &entry : entries)
+    {
+        Inode node;
+        // 需要通过 DiskManager 读取该条目对应的 Inode 获取类型
+        if (disk->ReadInode(entry.inode_id, node))
+        {
+            std::string type = (node.mode == 2) ? "[DIR]" : "[FILE]";
+            std::cout << std::left << std::setw(10) << type
+                      << std::setw(20) << entry.name
+                      << std::setw(10) << entry.inode_id << std::endl;
+        }
+    }
 }

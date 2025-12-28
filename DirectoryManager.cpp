@@ -35,13 +35,11 @@ bool DirectoryManager::InitializeRoot()
     // 5. 写入磁盘
     if (!disk->WriteBlock(rootBlockId, buffer))
         return false;
-
     // 6. 更新 Inode 的 size (2个条目 * 32字节 = 64字节)
     Inode rootNode;
     disk->ReadInode(rootInodeId, rootNode);
     rootNode.size = 2 * sizeof(DirEntry);
     disk->WriteInode(rootInodeId, rootNode);
-
     return true;
 }
 
@@ -93,7 +91,6 @@ bool DirectoryManager::AddDirEntry(uint32_t currentInodeId, const std::string &f
     currentNode.size += sizeof(DirEntry);
     if (!disk->WriteInode(currentInodeId, currentNode))
         return false;
-
     return true;
 }
 
@@ -132,4 +129,33 @@ uint32_t DirectoryManager::FindInodeId(const std::string &name, uint32_t current
             return entry->inode_id;
     }
     return (uint32_t)-1; // 未找到
+}
+
+// 列出目录内容
+std::vector<DirEntry> DirectoryManager::ListDirectory(uint32_t dirInodeId)
+{
+    std::vector<DirEntry> entries;
+    Inode dirNode;
+    // 1. 读取目录 Inode
+    if (!disk->ReadInode(dirInodeId, dirNode))
+        return entries;
+    // 2. 计算目录项总数
+    uint32_t count = dirNode.size / sizeof(DirEntry);
+    char buffer[BLOCK_SIZE];
+    // 3. 遍历直接索引块
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        uint32_t totalOffset = i * sizeof(DirEntry);
+        uint32_t ptrIdx = totalOffset / BLOCK_SIZE;
+        uint32_t offsetInBlock = totalOffset % BLOCK_SIZE;
+        if (ptrIdx >= 10)
+            break; // 超过直接索引限制
+        // 读取块
+        uint32_t physBlockId = dirNode.direct_ptr[ptrIdx];
+        disk->ReadBlock(physBlockId, buffer);
+        DirEntry *de = reinterpret_cast<DirEntry *>(buffer + offsetInBlock);
+        if (de->inode_id != (uint32_t)-1)
+            entries.push_back(*de);
+    }
+    return entries;
 }

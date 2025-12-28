@@ -36,7 +36,6 @@ bool DiskManager::InitializeDisk(const std::string &path)
     char null_byte = 0;
     fs.write(&null_byte, 1);
     // 3. 准备超级块 (Block 0)
-    SuperBlock sb;
     memset(&sb, 0, sizeof(SuperBlock)); // 先全部清零填充 padding
     sb.total_blocks = TOTAL_BLOCKS;
     sb.bitmap_start = 1;
@@ -48,9 +47,9 @@ bool DiskManager::InitializeDisk(const std::string &path)
     fs.seekp(0);
     fs.write(reinterpret_cast<char *>(&sb), sizeof(SuperBlock));
     // 4. 准备并写入位图 (Block 1 - 8)
-    // 我们需要标记前 1033 个位为 1 (1033 = 1个超级块 + 8个位图块 + 1024个Inode块)
+    // 我们需要标记前 8 个位为 1
     std::vector<uint8_t> bitmap(BLOCK_SIZE * 8, 0);
-    for (uint32_t i = 0; i < 1033; ++i)
+    for (uint32_t i = 0; i < 8; ++i)
     {
         // 计算在第几个字节，第几个位
         uint32_t byte_idx = i / 8;
@@ -68,6 +67,7 @@ bool DiskManager::InitializeDisk(const std::string &path)
     for (int i = 0; i < 1024; ++i)
         fs.write(empty_block.data(), BLOCK_SIZE);
     fs.close();
+    this->Mount();
     return true;
 }
 
@@ -249,44 +249,34 @@ int DiskManager::AllocateInode()
     {
         uint32_t currentByteIdx = INODE_BITMAP_START_BYTE + i;
         if (bitmap[currentByteIdx] != 0xFF)
-        {
             for (int bit = 0; bit < 8; ++bit)
-            {
                 if (!(bitmap[currentByteIdx] & (0x80 >> bit)))
                 {
                     foundId = i * 8 + bit;
                     break;
                 }
-            }
-        }
         if (foundId != -1)
             break;
     }
-
     if (foundId == -1)
         return -1;
-
     // 2. 更新内存位图 (必须使用和查找时完全一样的偏移逻辑)
     uint32_t targetByteIdx = INODE_BITMAP_START_BYTE + (foundId / 8);
     bitmap[targetByteIdx] |= (0x80 >> (foundId % 8));
-
     // 3. 计算磁盘同步位置
     // byteOffset 是该字节在整个位图区（从 bitmap[0] 开始算）的偏移
     uint32_t byteOffset = targetByteIdx;
     uint32_t blockOffset = byteOffset / BLOCK_SIZE;
     uint32_t targetPhysBlock = sb.bitmap_start + blockOffset;
-
     // 4. 写回受影响的“对齐”块
     // 必须从这个块的起始地址开始写，即 memStartIdx 必须是 BLOCK_SIZE 的倍数
     uint32_t memStartIdx = blockOffset * BLOCK_SIZE;
-
     if (!WriteBlock(targetPhysBlock, reinterpret_cast<char *>(&bitmap[memStartIdx])))
     {
         // 回滚
         bitmap[targetByteIdx] &= ~(0x80 >> (foundId % 8));
         return -1;
     }
-
     return foundId;
 }
 
@@ -312,7 +302,7 @@ bool DiskManager::InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id)
 bool DiskManager::FreeInode(uint32_t inodeId)
 {
     // 1. 计算在内存 bitmap 向量中的位置
-    uint32_t byteOffset = inodeId / 8;
+    uint32_t byteOffset = INODE_BITMAP_START_BYTE + (inodeId / 8);
     uint32_t bitOffset = inodeId % 8;
     // 2. 修改内存位图 (清零)
     // 检查是否已经是 0，防止重复释放导致 sb.free_inodes 计数错误
@@ -340,4 +330,38 @@ bool DiskManager::FreeInode(uint32_t inodeId)
     if (!WriteInode(inodeId, emptyInode))
         return false;
     return true;
+}
+
+void DiskManager::DumpBitmapOccupiedPart()
+{
+    // 假设系统占用块是 1032 (8个位图块 + 1024个Inode块)
+    const uint32_t SYSTEM_BLOCKS = 1032;
+    // 对应的字节数 = 1032 / 8 = 129 字节
+    uint32_t bytes_to_read = (SYSTEM_BLOCKS + 7) / 8;
+    std::vector<uint8_t> buffer(bytes_to_read);
+    // 从磁盘起始位置（Block 1）读取位图内容
+    std::ifstream ifs(this->path, std::ios::binary);
+    if (!ifs)
+    {
+        std::cerr << "错误：无法打开磁盘文件进行调试！" << std::endl;
+        return;
+    }
+    ifs.seekg(512);
+    ifs.read(reinterpret_cast<char *>(buffer.data()), bytes_to_read);
+    std::cout << "--- 位图占用区（系统块）状态 ---" << std::endl;
+    std::cout << "每行显示 8 个字节 (代表 64 个块的状态)" << std::endl;
+    for (uint32_t i = 0; i < buffer.size(); ++i)
+    {
+        // 打印块号范围索引
+        if (i % 8 == 0)
+        {
+            std::cout << "\nBlock " << std::setw(4) << i * 8 << " - "
+                      << std::setw(4) << (i * 8) + 63 << ": ";
+        }
+        // 将字节转换为二进制字符串显示
+        // std::bitset<8> 会把字节转成 01 字符串
+        std::cout << std::bitset<8>(buffer[i]) << " ";
+    }
+    std::cout << "\n\n--- 输出结束 ---" << std::endl;
+    ifs.close();
 }
