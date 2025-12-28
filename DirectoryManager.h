@@ -2,6 +2,7 @@
 #define DIRECTORY_MANAGER_H
 
 #include "FileSystem.h"
+#include "DiskManager.h"
 
 class DirectoryManager
 {

@@ -1,6 +1,9 @@
 #include "DirectoryManager.h"
 
-DirectoryManager::DirectoryManager(DiskManager *dm) : disk(dm) {}
+DirectoryManager::DirectoryManager(DiskManager *dm)
+{
+    this->disk = dm;
+}
 
 // 初始化根目录
 bool DirectoryManager::InitializeRoot()
@@ -14,7 +17,7 @@ bool DirectoryManager::InitializeRoot()
     }
     // 2. 分配根目录的第一个物理数据块
     uint32_t rootBlockId = disk->AllocateBlock();
-    if (rootBlockId == -1)
+    if (rootBlockId == (uint32_t)-1)
         return false;
     // 3. 初始化 Inode 元数据
     if (!disk->InitInode(rootInodeId, 2, rootBlockId))
@@ -24,11 +27,11 @@ bool DirectoryManager::InitializeRoot()
     memset(buffer, 0, BLOCK_SIZE);
     DirEntry *entries = reinterpret_cast<DirEntry *>(buffer);
     // 设置 "."
-    strncpy(entries[0].fileName, ".", 27);
-    entries[0].inodeId = rootInodeId;
+    strncpy(entries[0].name, ".", 27);
+    entries[0].inode_id = rootInodeId;
     // 设置 ".."
-    strncpy(entries[1].fileName, "..", 27);
-    entries[1].inodeId = rootInodeId; // 根目录的父目录是它自己
+    strncpy(entries[1].name, "..", 27);
+    entries[1].inode_id = rootInodeId; // 根目录的父目录是它自己
     // 5. 写入磁盘
     if (!disk->WriteBlock(rootBlockId, buffer))
         return false;
@@ -47,14 +50,14 @@ bool DirectoryManager::AddDirEntry(uint32_t currentInodeId, const std::string &f
 {
     // 1. 读取当前目录的 Inode 信息
     Inode currentNode;
-    if (!disk.ReadInode(currentInodeId, currentNode))
+    if (!disk->ReadInode(currentInodeId, currentNode))
         return false;
     // 2. 计算当前目录项应该存放的位置
     uint32_t currentSize = currentNode.size;
     uint32_t ptrIndex = currentSize / BLOCK_SIZE;      // 使用哪一个 direct_ptr
     uint32_t offsetInBlock = currentSize % BLOCK_SIZE; // 块内的字节偏移
     // 3. 边界检查：防止超过 10 个直接索引块的上限
-    if (ptrIndex >= 10)
+    if (ptrIndex >= (uint32_t)10)
     {
         std::cerr << "错误：目录已达到最大容量限制!" << std::endl;
         return false;
@@ -63,11 +66,11 @@ bool DirectoryManager::AddDirEntry(uint32_t currentInodeId, const std::string &f
     // 如果 offset 为 0 且 size > 0，说明上一个块刚好填满，需要为当前 ptrIndex 分配新块
     if (offsetInBlock == 0 && currentSize > 0)
     {
-        uint32_t newBlock = disk.AllocateBlock();
-        if (newBlock == -1)
+        uint32_t newBlock = disk->AllocateBlock();
+        if (newBlock == (uint32_t)-1)
             return false;
         currentNode.direct_ptr[ptrIndex] = newBlock;
-        parentNode.block_count++;
+        currentNode.block_count++;
         // 此时需要将新块清零，防止读到旧数据
         char zeroBuf[BLOCK_SIZE] = {0};
         disk->WriteBlock(newBlock, zeroBuf);
@@ -79,8 +82,8 @@ bool DirectoryManager::AddDirEntry(uint32_t currentInodeId, const std::string &f
     // 6. 在正确的位置写入新的 DirEntry
     DirEntry newEntry;
     memset(&newEntry, 0, sizeof(DirEntry));
-    strncpy(newEntry.fileName, fileName.c_str(), 27);
-    newEntry.inodeId = newInodeId;
+    strncpy(newEntry.name, fileName.c_str(), 27);
+    newEntry.inode_id = newInodeId;
     // 将 newEntry 拷贝到 buffer 的偏移位置
     memcpy(buffer + offsetInBlock, &newEntry, sizeof(DirEntry));
     // 7. 写回磁盘块
@@ -95,7 +98,7 @@ bool DirectoryManager::AddDirEntry(uint32_t currentInodeId, const std::string &f
 }
 
 // 查找 Inode 编号
-uint32_t FileManager::FindInodeId(const std::string &name, uint32_t currentDirInodeId)
+uint32_t DirectoryManager::FindInodeId(const std::string &name, uint32_t currentDirInodeId)
 {
     Inode currentNode;
     if (!disk->ReadInode(currentDirInodeId, currentNode))
@@ -125,9 +128,8 @@ uint32_t FileManager::FindInodeId(const std::string &name, uint32_t currentDirIn
         // 5. 获取目录项并比对名字
         DirEntry *entry = reinterpret_cast<DirEntry *>(buffer + offsetInBlock);
         // 注意：由于是 char 数组，直接比对 string
-        if (name == entry->fileName)
-            return entry->inodeId;
+        if (name == entry->name)
+            return entry->inode_id;
     }
-
-    return -1; // 未找到
+    return (uint32_t)-1; // 未找到
 }

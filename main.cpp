@@ -11,8 +11,8 @@ int main()
 
     DiskManager dm(VDISK_PATH);
     UserManager um;
-    DirectoryManager dirm(dm);
-    FileManager fm(dm, dirm);
+    DirectoryManager dirm(&dm);
+    FileManager fm(&dm, &dirm);
     SystemContext ctx;
     Shell shell;
 
@@ -29,6 +29,9 @@ int main()
         dirm.InitializeRoot();
     }
     dm.Mount();
+
+    // 测试
+    
 
     // // 2. 初始化上下文 (从根目录开始)
     // ctx.currentDir.currentInodeId = 0;

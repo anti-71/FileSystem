@@ -20,16 +20,9 @@
 #define INODES_PER_BLOCK 4
 #define DIR_ENTRY_SIZE 32
 
+const uint32_t INODE_BITMAP_BYTES = 512;
+const uint32_t INODE_BITMAP_START_BYTE = 1;
 const std::string VDISK_PATH = "vdisk.img";
-
-// 系统内容结构体
-struct SystemContext
-{
-    std::vector<User> uList; // 用户列表
-    User currentUser;        // 当前用户
-    // CurrentDir currentDir;                 // 当前目录
-    // std::vector<FileDescriptor> openFiles; // 打开的文件列表
-};
 
 // 用户结构体
 struct User
@@ -66,6 +59,15 @@ struct DirEntry
 {
     char name[28];     // 文件名
     uint32_t inode_id; // 对应 Inode 编号
+};
+
+// 系统内容结构体
+struct SystemContext
+{
+    std::vector<User> uList; // 用户列表
+    User currentUser;        // 当前用户
+    // CurrentDir currentDir;                 // 当前目录
+    // std::vector<FileDescriptor> openFiles; // 打开的文件列表
 };
 
 #endif

@@ -2,6 +2,8 @@
 
 DiskManager::DiskManager(const std::string &vdisk_path) : path(vdisk_path)
 {
+    uint32_t bitmapTotalBytes = 8 * BLOCK_SIZE;
+    bitmap.resize(bitmapTotalBytes);
 }
 
 DiskManager::~DiskManager()
@@ -28,13 +30,11 @@ bool DiskManager::InitializeDisk(const std::string &path)
         std::cerr << "错误：无法创建镜像文件！" << std::endl;
         return false;
     }
-
     // 2. 预分配空间（16MB）
     // 跳到末尾写一个字节，操作系统会自动分配空洞文件
     fs.seekp(TOTAL_BLOCKS * BLOCK_SIZE - 1);
     char null_byte = 0;
     fs.write(&null_byte, 1);
-
     // 3. 准备超级块 (Block 0)
     SuperBlock sb;
     memset(&sb, 0, sizeof(SuperBlock)); // 先全部清零填充 padding
@@ -47,7 +47,6 @@ bool DiskManager::InitializeDisk(const std::string &path)
     // 写入第 0 块
     fs.seekp(0);
     fs.write(reinterpret_cast<char *>(&sb), sizeof(SuperBlock));
-
     // 4. 准备并写入位图 (Block 1 - 8)
     // 我们需要标记前 1033 个位为 1 (1033 = 1个超级块 + 8个位图块 + 1024个Inode块)
     std::vector<uint8_t> bitmap(BLOCK_SIZE * 8, 0);
@@ -62,14 +61,12 @@ bool DiskManager::InitializeDisk(const std::string &path)
     // 寻址到 Block 1 的起始位置写入
     fs.seekp(BLOCK_SIZE * 1);
     fs.write(reinterpret_cast<char *>(bitmap.data()), bitmap.size());
-
     // 5. 准备并写入空的 Inode 区 (Block 9 - 1032)
     // 这里暂时只填充全 0
     std::vector<char> empty_block(BLOCK_SIZE, 0);
     fs.seekp(BLOCK_SIZE * 9);
     for (int i = 0; i < 1024; ++i)
         fs.write(empty_block.data(), BLOCK_SIZE);
-
     fs.close();
     return true;
 }
@@ -84,27 +81,22 @@ bool DiskManager::Mount()
         std::cerr << "错误：无法打开虚拟磁盘文件! " << std::endl;
         return false;
     }
-
     // 2. 读取超级块到内存 (Block 0)
     char buffer[BLOCK_SIZE];
     if (!ReadBlock(0, buffer))
         return false;
     memcpy(&sb, buffer, sizeof(SuperBlock));
-
     // 3. 根据超级块信息，加载位图到内存 (Block 1 - 8)
     uint32_t bitmap_total_size = BITMAP_SIZE * BLOCK_SIZE;
     bitmap.resize(bitmap_total_size);
-
     // 定位到位图区起始点
     disk.seekg(sb.bitmap_start * BLOCK_SIZE, std::ios::beg);
     disk.read(reinterpret_cast<char *>(bitmap.data()), bitmap_total_size);
-
     if (!disk.good())
     {
         std::cerr << "错误：加载位图失败!" << std::endl;
         return false;
     }
-
     // std::cout << "磁盘已挂载:总块数: " << sb.total_blocks
     //           << ", 空闲块: " << sb.free_blocks << std::endl;
     return true;
@@ -118,12 +110,10 @@ void DiskManager::UnMount()
         // 1. 强制同步超级块到 Block 0
         if (!WriteBlock(0, reinterpret_cast<char *>(&sb)))
             std::cerr << "错误：同步超级块到磁盘失败!" << std::endl;
-
         // 2. 强制同步完整的位图区 (Block 1 到 8)
         // 即使 AllocateBlock 里有单块同步，卸载时全量覆盖可防止内存与磁盘长期的微小偏差
         disk.seekp(sb.bitmap_start * BLOCK_SIZE, std::ios::beg);
         disk.write(reinterpret_cast<const char *>(bitmap.data()), bitmap.size());
-
         // 3. 刷新缓冲区并关闭文件
         disk.flush();
         disk.close();
@@ -155,12 +145,11 @@ int DiskManager::AllocateBlock()
     {
         uint32_t byte_idx = i / 8;
         uint32_t bit_idx = i % 8;
-        // 检查该位是否为 0 (0x80 >> bit_idx 对应从高位到低位的排列)
+        // 检查该位是否为 0
         if (!(bitmap[byte_idx] & (0x80 >> bit_idx)))
         {
             // 2. 找到空闲块，在内存位图中将其置为 1
             bitmap[byte_idx] |= (0x80 >> bit_idx);
-
             // 3. 计算该位所在的物理块号并写回磁盘
             // byte_idx / BLOCK_SIZE 得到该字节在位图区的第几个块 (0-7)
             uint32_t bitmap_block_id = sb.bitmap_start + (byte_idx / BLOCK_SIZE);
@@ -173,17 +162,14 @@ int DiskManager::AllocateBlock()
                 std::cerr << "错误：同步位图块到磁盘失败!" << std::endl;
                 return -1;
             }
-
             // 4. 更新内存中的超级块信息
             sb.free_blocks--;
-
             // 5. 同步超级块到磁盘 (Block 0)
             if (!WriteBlock(0, reinterpret_cast<char *>(&sb)))
             {
                 std::cerr << "错误：同步超级块到磁盘失败!" << std::endl;
                 return -1;
             }
-
             // 6. 返回成功分配的物理块号
             return i;
         }
@@ -202,24 +188,19 @@ bool DiskManager::FreeBlock(uint32_t block_id)
         std::cerr << "错误：不能释放保留区块! " << block_id << std::endl;
         return false;
     }
-
     // 2. 定位位图中的位置
     uint32_t byte_idx = block_id / 8;
     uint32_t bit_idx = block_id % 8;
-
     // 3. 将位图对应位置改为 0
     bitmap[byte_idx] &= ~(0x80 >> bit_idx);
-
     // 4. 同步该位图块到磁盘
     uint32_t bitmap_block_id = sb.bitmap_start + (byte_idx / BLOCK_SIZE);
     uint32_t offset_in_bitmap = (byte_idx / BLOCK_SIZE) * BLOCK_SIZE;
     char *block_ptr = reinterpret_cast<char *>(&bitmap[offset_in_bitmap]);
     if (!WriteBlock(bitmap_block_id, block_ptr))
         return false;
-
     // 5. 更新超级块空闲统计
     sb.free_blocks++;
-
     // 6. 同步超级块
     if (!WriteBlock(0, reinterpret_cast<char *>(&sb)))
         return false;
@@ -232,12 +213,10 @@ bool DiskManager::ReadInode(uint32_t inode_id, Inode &node)
     // 1. 计算物理位置
     uint32_t block_id = sb.inode_start + (inode_id / INODES_PER_BLOCK);
     uint32_t offset = (inode_id % INODES_PER_BLOCK) * sizeof(Inode);
-
     // 2. 读取整个块
     char buffer[BLOCK_SIZE];
     if (!ReadBlock(block_id, buffer))
         return false;
-
     // 3. 从块中拷贝出对应的 Inode 部分
     memcpy(&node, buffer + offset, sizeof(Inode));
     return true;
@@ -249,45 +228,66 @@ bool DiskManager::WriteInode(uint32_t inode_id, const Inode &node)
     // 1. 定位
     uint32_t target_block = sb.inode_start + (inode_id / 4);
     uint32_t offset_in_block = (inode_id % 4) * sizeof(Inode);
-
     // 2. 读出原有的块数据 (读-改-写的第一步)
     char buffer[BLOCK_SIZE];
     if (!ReadBlock(target_block, buffer))
         return false;
-
     // 3. 将新的 Inode 数据覆盖到缓冲区的正确位置 (修改)
     memcpy(buffer + offset_in_block, &node, sizeof(Inode));
-
     // 4. 写回整个块 (写)
     if (!WriteBlock(target_block, buffer))
         return false;
     return true;
 }
 
-// 分配一个空闲的 inode
-int AllocateInode()
+// 申请一个 Inode，返回 Inode 编号，失败返回 -1
+int DiskManager::AllocateInode()
 {
-    Inode temp_node;
-    // 遍历所有可能的 Inode 编号
-    // 总块数 1024 块 * 每块 4 个 Inode = 4096 个
-    for (uint32_t i = 0; i < 4096; ++i)
+    int foundId = -1;
+    // 1. 扫描查找
+    for (uint32_t i = 0; i < INODE_BITMAP_BYTES; ++i)
     {
-        if (!ReadInode(i, temp_node))
-            continue;
-        // 如果 mode 为 0，说明此 Inode 槽位空闲
-        if (temp_node.mode == 0)
+        uint32_t currentByteIdx = INODE_BITMAP_START_BYTE + i;
+        if (bitmap[currentByteIdx] != 0xFF)
         {
-            // 立即初始化该 Inode，防止被重复分配
-            memset(&temp_node, 0, sizeof(Inode));
-            temp_node.inode_id = i;
-            // 暂时给一个非 0 值标记为已占用，后续由 FileManager 修改具体 mode
-            temp_node.mode = 1;
-            if (WriteInode(i, temp_node))
-                return i; // 返回找到的 Inode 编号
+            for (int bit = 0; bit < 8; ++bit)
+            {
+                if (!(bitmap[currentByteIdx] & (0x80 >> bit)))
+                {
+                    foundId = i * 8 + bit;
+                    break;
+                }
+            }
         }
+        if (foundId != -1)
+            break;
     }
-    std::cerr << "错误：没有可用的 inode!" << endl;
-    return -1; 
+
+    if (foundId == -1)
+        return -1;
+
+    // 2. 更新内存位图 (必须使用和查找时完全一样的偏移逻辑)
+    uint32_t targetByteIdx = INODE_BITMAP_START_BYTE + (foundId / 8);
+    bitmap[targetByteIdx] |= (0x80 >> (foundId % 8));
+
+    // 3. 计算磁盘同步位置
+    // byteOffset 是该字节在整个位图区（从 bitmap[0] 开始算）的偏移
+    uint32_t byteOffset = targetByteIdx;
+    uint32_t blockOffset = byteOffset / BLOCK_SIZE;
+    uint32_t targetPhysBlock = sb.bitmap_start + blockOffset;
+
+    // 4. 写回受影响的“对齐”块
+    // 必须从这个块的起始地址开始写，即 memStartIdx 必须是 BLOCK_SIZE 的倍数
+    uint32_t memStartIdx = blockOffset * BLOCK_SIZE;
+
+    if (!WriteBlock(targetPhysBlock, reinterpret_cast<char *>(&bitmap[memStartIdx])))
+    {
+        // 回滚
+        bitmap[targetByteIdx] &= ~(0x80 >> (foundId % 8));
+        return -1;
+    }
+
+    return foundId;
 }
 
 // 初始化 Inode
@@ -298,14 +298,46 @@ bool DiskManager::InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id)
     memset(&newNode, 0, sizeof(Inode));
     // 2. 设置基础元数据
     newNode.inode_id = inode_id;
-    newNode.mode = mode;        
-    newNode.size = 0;          
-    newNode.block_count = 1;     // 初始占用 1 个块
-    // 3. 建立物理映射
+    newNode.mode = mode;
+    newNode.size = 0;
+    newNode.block_count = 1; // 初始占用 1 个块
     newNode.direct_ptr[0] = block_id;
-    // 4. 调用 DiskManager 的接口将 Inode 写入磁盘
-    if (!disk.WriteInode(inodeId, newNode)) 
+    // 3. 将 Inode 写入磁盘
+    if (!WriteInode(inode_id, newNode))
         return false;
+    return true;
+}
 
+// 释放 Inode
+bool DiskManager::FreeInode(uint32_t inodeId)
+{
+    // 1. 计算在内存 bitmap 向量中的位置
+    uint32_t byteOffset = inodeId / 8;
+    uint32_t bitOffset = inodeId % 8;
+    // 2. 修改内存位图 (清零)
+    // 检查是否已经是 0，防止重复释放导致 sb.free_inodes 计数错误
+    if (!(bitmap[byteOffset] & (0x80 >> bitOffset)))
+    {
+        std::cerr << "错误：Inode " << inodeId << " 已经是空闲状态！" << std::endl;
+        return true;
+    }
+    bitmap[byteOffset] &= ~(0x80 >> bitOffset);
+    // 3. 同步位图到磁盘 (只写回受影响的那个块)
+    // 确定该字节属于位图的第几个块
+    uint32_t blockOffset = byteOffset / BLOCK_SIZE;
+    uint32_t targetBlockId = sb.bitmap_start + blockOffset;
+    // 获取指向该块起始位置的指针
+    uint8_t *blockPtr = &bitmap[blockOffset * BLOCK_SIZE];
+    if (!WriteBlock(targetBlockId, reinterpret_cast<char *>(blockPtr)))
+        return false;
+    // 4. 更新内存中的超级块计数并写回磁盘
+    if (!WriteBlock(targetBlockId, reinterpret_cast<char *>(&bitmap[blockOffset * BLOCK_SIZE])))
+        return -1;
+    // 5. 清理磁盘上的 Inode 结构体区域 (防止残留数据)
+    Inode emptyInode;
+    memset(&emptyInode, 0, sizeof(Inode));
+    emptyInode.inode_id = inodeId; // 保持 ID 一致
+    if (!WriteInode(inodeId, emptyInode))
+        return false;
     return true;
 }
