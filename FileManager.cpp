@@ -138,3 +138,166 @@ bool FileManager::MakeDirectory(const std::string &name)
     // 6. 在父目录中添加该目录项
     return dir->AddDirEntry(currentInodeId, name, newDirInodeId);
 }
+
+// 切换当前工作目录
+bool FileManager::ChangeDirectory(const std::string &path)
+{
+    // 1. 在当前目录下查找目标路径对应的 Inode ID
+    uint32_t targetInodeId = dir->FindInodeId(path, currentInodeId);
+    if (targetInodeId == (uint32_t)-1)
+    {
+        std::cerr << "错误：路径 '" << path << "' 不存在！" << std::endl;
+        return false;
+    }
+    // 2. 获取该 Inode 的元数据，校验是否为目录
+    Inode targetNode;
+    if (!disk->ReadInode(targetInodeId, targetNode))
+        return false;
+    // mode 为 2 代表目录，1 代表普通文件
+    if (targetNode.mode != 2)
+    {
+        std::cerr << "错误：'" << path << "' 不是一个目录！" << std::endl;
+        return false;
+    }
+    // 3. 更新当前路径指针
+    currentInodeId = targetInodeId;
+    return true;
+}
+
+// 获取当前工作目录的绝对路径字符串
+std::string FileManager::GetAbsolutePath()
+{
+    // 如果已经在根目录，直接返回 "/"
+    if (currentInodeId == 0)
+        return "/";
+    std::vector<std::string> pathComponents;
+    uint32_t tempInodeId = currentInodeId;
+    // 向上追溯直到根目录 (Inode 0)
+    while (tempInodeId != 0)
+    {
+        // 1. 获取当前目录的父目录 ID (通过读取当前目录下的 ".." 条目)
+        uint32_t parentInodeId = dir->FindInodeId("..", tempInodeId);
+        if (parentInodeId == (uint32_t)-1)
+            break;
+        // 2. 在父目录中查找 tempInodeId 对应的名字
+        // 我们需要遍历父目录的所有目录项
+        std::vector<DirEntry> parentEntries = dir->ListDirectory(parentInodeId);
+        bool found = false;
+        for (const auto &entry : parentEntries)
+            if (entry.inode_id == tempInodeId)
+            {
+                pathComponents.push_back(entry.name);
+                found = true;
+                break;
+            }
+        if (!found)
+            break;
+        // 3. 移动到父目录，继续向上找
+        tempInodeId = parentInodeId;
+    }
+    // 4. 将路径组件反向拼接
+    std::string fullPath = "";
+    for (int i = pathComponents.size() - 1; i >= 0; --i)
+        fullPath += "/" + pathComponents[i];
+    return fullPath;
+}
+
+// 创建文件
+bool FileManager::TouchFile(const std::string &name)
+{
+    // 1. 首先在当前目录下查找该文件是否已存在
+    // 0 代表当前目录 ID
+    uint32_t existingInodeId = dir->FindInodeId(name, currentInodeId);
+    if (existingInodeId != (uint32_t)-1)
+        return false; // 2. 如果文件已存在：更新时间戳
+    else
+        return CreateFile(name); // 3. 如果文件不存在：直接创建新文件
+}
+
+// 向文件内写入内容
+bool FileManager::WriteFile(const std::string &name, const std::string &content)
+{
+    // 1. 查找文件 Inode
+    uint32_t inodeId = dir->FindInodeId(name, currentInodeId);
+    if (inodeId == (uint32_t)-1)
+    {
+        std::cerr << "错误：文件不存在！" << std::endl;
+        return false;
+    }
+    Inode node;
+    disk->ReadInode(inodeId, node);
+    if (node.mode != 1)
+    { // 确认是文件而非目录
+        std::cerr << "错误：不能向目录写入内容！" << std::endl;
+        return false;
+    }
+    // 2. 清理旧块 (假设 write 是覆盖式写入)
+    for (int i = 0; i < 10; ++i)
+    {
+        if (node.direct_ptr[i] != 0)
+        {
+            disk->FreeBlock(node.direct_ptr[i]);
+            node.direct_ptr[i] = 0;
+        }
+    }
+    // 3. 计算所需块数并分配
+    size_t contentLen = content.length();
+    uint32_t numBlocks = (contentLen + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    if (numBlocks > 10)
+    {
+        std::cerr << "错误：内容过大，超出直接索引限制！" << std::endl;
+        return false;
+    }
+    // 4. 写入数据
+    for (uint32_t i = 0; i < numBlocks; ++i)
+    {
+        uint32_t newBlockId = disk->AllocateBlock();
+        if (newBlockId == (uint32_t)-1)
+        {
+            std::cerr << "错误：磁盘空间不足！" << std::endl;
+            return false;
+        }
+        node.direct_ptr[i] = newBlockId;
+        // 填充缓冲区并写入
+        char buffer[BLOCK_SIZE] = {0};
+        size_t offset = i * BLOCK_SIZE;
+        size_t toWrite = std::min((size_t)BLOCK_SIZE, contentLen - offset);
+        memcpy(buffer, content.c_str() + offset, toWrite);
+        disk->WriteBlock(newBlockId, buffer);
+    }
+    // 5. 更新 Inode 元数据
+    node.size = contentLen;
+    return disk->WriteInode(inodeId, node);
+}
+
+// 读取文件内容并返回字符串
+std::string FileManager::ReadFile(const std::string &name)
+{
+    // 1. 在当前目录下查找文件 Inode ID
+    uint32_t inodeId = dir->FindInodeId(name, currentInodeId);
+    if (inodeId == (uint32_t)-1)
+        return "错误：文件不存在!";
+    // 2. 读取 Inode 元数据
+    Inode node;
+    if (!disk->ReadInode(inodeId, node))
+        return "错误：无法读取 Inode!";
+    // 3. 校验类型是否为文件
+    if (node.mode != 1)
+        return "错误：目标是一个目录，无法读取内容!";
+    // 4. 根据 size 循环读取物理块
+    std::string result = "";
+    uint32_t remainingSize = node.size;
+    char buffer[BLOCK_SIZE];
+    for (int i = 0; i < 10 && remainingSize > 0; ++i)
+    {
+        uint32_t physBlockId = node.direct_ptr[i];
+        if (physBlockId == 0)
+            break; // 安全保护：不应该出现的空指针
+        disk->ReadBlock(physBlockId, buffer);
+        // 计算当前块中实际有效的数据长度
+        uint32_t bytesToRead = std::min((uint32_t)BLOCK_SIZE, remainingSize);
+        result.append(buffer, bytesToRead);
+        remainingSize -= bytesToRead;
+    }
+    return result;
+}

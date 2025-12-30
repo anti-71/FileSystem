@@ -19,9 +19,7 @@ int main()
     // 读入用户列表
     um.LoadUsers(ctx);
     ctx.currentUser.userId = 0;
-    // ctx.currentDir.path = "/";
-
-    // 1. 初始化系统
+    // 初始化系统
     if (!dm.FileExists(VDISK_PATH))
     {
         std::cout << "检测到镜像不存在，正在进行首次初始化..." << std::endl;
@@ -30,14 +28,7 @@ int main()
     }
     else
         dm.Mount();
-
-    // 测试
-
-    // // 2. 初始化上下文 (从根目录开始)
-    // ctx.currentDir.currentInodeId = 0;
-    // ctx.currentDir.path = "/";
-
-    // 3. 启动 Shell
+    // 启动 Shell
     shell.Run(dm, um, dirm, fm, ctx);
 
     return 0;

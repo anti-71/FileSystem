@@ -19,6 +19,11 @@ public:
     bool DeleteFile(const std::string &name);
     uint32_t GetCurrentInodeId();
     bool MakeDirectory(const std::string &name);
+    bool ChangeDirectory(const std::string &path);
+    std::string GetAbsolutePath();
+    bool TouchFile(const std::string &name);
+    bool WriteFile(const std::string &name, const std::string &content);
+    std::string ReadFile(const std::string &name);
 };
 
 #endif
