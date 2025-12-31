@@ -6,14 +6,18 @@
 #include <string>
 #include <cstring>
 #include <ctime>
-#include <windows.h>
 #include <fstream>
 #include <algorithm>
 #include <sstream>
 #include <cstdint>
-#include <sys/stat.h>
 #include <bitset>
 #include <iomanip>
+#include <thread>
+#include <chrono>
+#include <windows.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 // --- 基础常量定义 ---
 #define BLOCK_SIZE 512
@@ -53,7 +57,9 @@ struct Inode
     uint32_t size;           // 文件大小（字节）
     uint32_t block_count;    // 已占用的数据块数量
     uint32_t direct_ptr[10]; // 直接索引：记录该文件占用的物理块号
-    char padding[68];        // 填充至 128 字节
+    int32_t reader_count;    // 当前读者数量
+    int32_t is_writing;      // 0: 空闲, 1: 正在写入/删除
+    char padding[60];        // 填充至 128 字节
 };
 
 // 目录项结构：正好 32 字节，一块 (512B) 可存 16 个
@@ -63,13 +69,18 @@ struct DirEntry
     uint32_t inode_id; // 对应 Inode 编号
 };
 
+// 文件访问状态结构体
+struct FileAccessStatus
+{
+    int reader_count = 0;    // 当前读者数量
+    bool is_writing = false; // 是否正在被写（包括删除）
+};
+
 // 系统内容结构体
 struct SystemContext
 {
     std::vector<User> uList; // 用户列表
     User currentUser;        // 当前用户
-    // CurrentDir currentDir;                 // 当前目录
-    // std::vector<FileDescriptor> openFiles; // 打开的文件列表
 };
 
 #endif

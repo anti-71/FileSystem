@@ -292,6 +292,8 @@ bool DiskManager::InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id)
     newNode.size = 0;
     newNode.block_count = 1; // 初始占用 1 个块
     newNode.direct_ptr[0] = block_id;
+    newNode.reader_count = 0; // 初始没有读者
+    newNode.is_writing = 0;   // 初始没有写者
     // 3. 将 Inode 写入磁盘
     if (!WriteInode(inode_id, newNode))
         return false;

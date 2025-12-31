@@ -4,6 +4,7 @@
 #include "FileManager.h"
 #include "Shell.h"
 #include "FileSystem.h"
+#include "LockManager.h"
 
 int main()
 {
@@ -13,6 +14,7 @@ int main()
     UserManager um;
     DirectoryManager dirm(&dm);
     FileManager fm(&dm, &dirm);
+    LockManager lm(&dm);
     SystemContext ctx;
     Shell shell;
 
@@ -29,7 +31,7 @@ int main()
     else
         dm.Mount();
     // 启动 Shell
-    shell.Run(dm, um, dirm, fm, ctx);
+    shell.Run(dm, um, dirm, fm, lm, ctx);
 
     return 0;
 }
