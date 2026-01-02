@@ -15,7 +15,7 @@ public:
     void SaveUsersToFile(SystemContext &ctx);
     void LoadUsers(SystemContext &ctx);
     void SwitchUser(SystemContext &ctx, const std::vector<std::string> &args);
-    void AddUser(SystemContext &ctx, int targetId);
+    void AddUser(SystemContext &ctx, int targetId, int targetGroupId);
 };
 
 #endif

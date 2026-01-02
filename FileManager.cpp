@@ -1,13 +1,14 @@
 #include "FileManager.h"
 
-FileManager::FileManager(DiskManager *dm, DirectoryManager *dirm) : currentInodeId(0)
+FileManager::FileManager(DiskManager *dm, DirectoryManager *dirm, SystemContext *ctx) : currentInodeId(0)
 {
     this->disk = dm;
     this->dir = dirm;
+    this->ctx = ctx;
 }
 
 // 创建文件
-bool FileManager::CreateFile(const std::string &name)
+bool FileManager::CreateFile(const std::string &name, uint32_t customPerm)
 {
     // 1. 分配空闲的 inode
     uint32_t inodeNum = disk->AllocateInode();
@@ -18,12 +19,14 @@ bool FileManager::CreateFile(const std::string &name)
     if (blockNum == -1)
         return false;
     // 3. 初始化 inode
-    if (!disk->InitInode(inodeNum, 1, blockNum))
+    // 如果用户没传权限，设置文件默认权限
+    uint32_t perm = (customPerm == 0) ? ROOT_FILE_MODE : (customPerm & PERM_MASK);
+    uint32_t mode = (TYPE_FILE << 9) | perm;
+    if (!disk->InitInode(inodeNum, mode, blockNum, (uint32_t)ctx->currentUser.userId, (uint32_t)ctx->currentUser.groupId))
         return false;
     // 4. 写入文件名
     if (!dir->AddDirEntry(currentInodeId, name, inodeNum))
         return false;
-
     return true;
 }
 
@@ -109,20 +112,35 @@ uint32_t FileManager::GetCurrentInodeId()
 }
 
 // 创建目录
-bool FileManager::MakeDirectory(const std::string &name)
+bool FileManager::MakeDirectory(const std::string &name, uint32_t customPerm)
 {
-    // 1. 分配 Inode
+    // 1. 权限校验
+    // 硬拦截访客:如果当前组是 GID_GUEST，直接拒绝
+    if (ctx->currentUser.groupId == GID_GUEST)
+    {
+        std::cout << "权限拒绝：访客组用户禁止创建目录!" << std::endl;
+        return false;
+    }
+    // 目录权限校验:在父目录创建子目录，需要对父目录有写权限(W=2)
+    if (!HasPermission(currentInodeId, PERM_W, ctx->currentUser))
+    {
+        std::cout << "权限拒绝：你没有在当前目录下创建条目的权限!" << std::endl;
+        return false;
+    }
+    // 2. 分配 Inode
     uint32_t newDirInodeId = disk->AllocateInode();
     if (newDirInodeId == (uint32_t)-1)
         return false;
-    // 2. 分配第一个数据块
+    // 3. 分配第一个数据块
     uint32_t newDirBlockId = disk->AllocateBlock();
     if (newDirBlockId == (uint32_t)-1)
         return false;
-    // 3. 初始化 Inode (mode 设为 2 代表目录)
-    if (!disk->InitInode(newDirInodeId, 2, newDirBlockId))
+    // 4. 初始化 Inode
+    uint32_t perm = (customPerm == 0) ? ROOT_DIR_MODE : (customPerm & PERM_MASK);
+    uint32_t mode = (TYPE_DIR << 9) | perm;
+    if (!disk->InitInode(newDirInodeId, mode, newDirBlockId, (uint32_t)ctx->currentUser.userId, (uint32_t)ctx->currentUser.groupId))
         return false;
-    // 4. 初始化目录项 (. 和 ..)
+    // 5. 初始化目录项 (. 和 ..)
     char buffer[BLOCK_SIZE] = {0};
     DirEntry *entries = reinterpret_cast<DirEntry *>(buffer);
     strncpy(entries[0].name, ".", 27);
@@ -130,12 +148,12 @@ bool FileManager::MakeDirectory(const std::string &name)
     strncpy(entries[1].name, "..", 27);
     entries[1].inode_id = currentInodeId; // 指向当前父目录
     disk->WriteBlock(newDirBlockId, buffer);
-    // 5. 设置 Inode 大小并写回
+    // 6. 设置 Inode 大小并写回
     Inode node;
     disk->ReadInode(newDirInodeId, node);
     node.size = 2 * sizeof(DirEntry);
     disk->WriteInode(newDirInodeId, node);
-    // 6. 在父目录中添加该目录项
+    // 7. 在父目录中添加该目录项
     return dir->AddDirEntry(currentInodeId, name, newDirInodeId);
 }
 
@@ -153,10 +171,19 @@ bool FileManager::ChangeDirectory(const std::string &path)
     Inode targetNode;
     if (!disk->ReadInode(targetInodeId, targetNode))
         return false;
-    // mode 为 2 代表目录，1 代表普通文件
-    if (targetNode.mode != 2)
+    // fileType 为 2 代表目录，1 代表普通文件
+    uint32_t fileType = targetNode.mode >> 9;
+    // 提取权限位:使用掩码
+    uint32_t filePerm = targetNode.mode & PERM_MASK;
+    if (fileType != 2)
     {
         std::cerr << "错误：'" << path << "' 不是一个目录！" << std::endl;
+        return false;
+    }
+    // 需要校验进入目录的权限
+    if (!HasPermission(targetInodeId, PERM_X, ctx->currentUser))
+    {
+        std::cerr << "错误：权限不足，无法进入目录 '" << path << "'!" << std::endl;
         return false;
     }
     // 3. 更新当前路径指针
@@ -203,15 +230,27 @@ std::string FileManager::GetAbsolutePath()
 }
 
 // 创建文件
-bool FileManager::TouchFile(const std::string &name)
+bool FileManager::TouchFile(const std::string &name, uint32_t customPerm)
 {
-    // 1. 首先在当前目录下查找该文件是否已存在
-    // 0 代表当前目录 ID
+    // 1. 权限预检
+    // 访客拦截
+    if (ctx->currentUser.groupId == GID_GUEST)
+    {
+        std::cout << "权限拒绝：访客账户无法执行 touch 操作!" << std::endl;
+        return false;
+    }
+    // 检查对当前目录的写权限
+    if (!HasPermission(currentInodeId, PERM_W, ctx->currentUser))
+    {
+        std::cout << "权限拒绝：您没有当前目录的写权限!" << std::endl;
+        return false;
+    }
+    // 2. 在当前目录下查找该文件是否已存在
     uint32_t existingInodeId = dir->FindInodeId(name, currentInodeId);
     if (existingInodeId != (uint32_t)-1)
-        return false; // 2. 如果文件已存在：更新时间戳
+        return false; 
     else
-        return CreateFile(name); // 3. 如果文件不存在：直接创建新文件
+        return CreateFile(name, customPerm); // 3. 如果文件不存在：直接创建新文件
 }
 
 // 向文件内写入内容
@@ -281,10 +320,7 @@ std::string FileManager::ReadFile(const std::string &name)
     Inode node;
     if (!disk->ReadInode(inodeId, node))
         return "错误：无法读取 Inode!";
-    // 3. 校验类型是否为文件
-    if (node.mode != 1)
-        return "错误：目标是一个目录，无法读取内容!";
-    // 4. 根据 size 循环读取物理块
+    // 3. 根据 size 循环读取物理块
     std::string result = "";
     uint32_t remainingSize = node.size;
     char buffer[BLOCK_SIZE];
@@ -300,4 +336,27 @@ std::string FileManager::ReadFile(const std::string &name)
         remainingSize -= bytesToRead;
     }
     return result;
+}
+
+// 判断用户是否具有指定权限
+bool FileManager::HasPermission(uint32_t inodeId, int requiredPerm, const User &user)
+{
+    // 1. Root 用户 (UID 0) 拥有绝对权限
+    if (user.groupId == GID_ROOT)
+        return true;
+    Inode node;
+    if (!disk->ReadInode(inodeId, node))
+        return false;
+    // 2. 提取权限位
+    uint32_t mode = node.mode & PERM_MASK;
+    uint32_t ownerPerm = (mode >> 6) & 07;
+    uint32_t groupPerm = (mode >> 3) & 07;
+    uint32_t otherPerm = mode & 07;
+    // 3. 判定身份并校验
+    if (node.owner_id == user.userId)
+        return (ownerPerm & requiredPerm) == requiredPerm;
+    else if (node.group_id == user.groupId)
+        return (groupPerm & requiredPerm) == requiredPerm;
+    else
+        return (otherPerm & requiredPerm) == requiredPerm;
 }

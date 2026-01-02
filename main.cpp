@@ -10,17 +10,18 @@ int main()
 {
     SetConsoleOutputCP(65001); // 强制更改终端编码
 
+    SystemContext ctx;
     DiskManager dm(VDISK_PATH);
     UserManager um;
     DirectoryManager dirm(&dm);
-    FileManager fm(&dm, &dirm);
+    FileManager fm(&dm, &dirm, &ctx);
     LockManager lm(&dm);
-    SystemContext ctx;
     Shell shell;
 
     // 读入用户列表
     um.LoadUsers(ctx);
     ctx.currentUser.userId = 0;
+    ctx.currentUser.groupId = GID_ROOT;
     // 初始化系统
     if (!dm.FileExists(VDISK_PATH))
     {

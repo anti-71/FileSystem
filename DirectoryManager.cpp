@@ -20,7 +20,8 @@ bool DirectoryManager::InitializeRoot()
     if (rootBlockId == (uint32_t)-1)
         return false;
     // 3. 初始化 Inode 元数据
-    if (!disk->InitInode(rootInodeId, 2, rootBlockId))
+    uint32_t mode = (TYPE_DIR << 9) | ROOT_DIR_MODE;
+    if (!disk->InitInode(rootInodeId, mode, rootBlockId, 0, 0))
         return false;
     // 4. 构造目录项数据块 (包含 . 和 ..)
     char buffer[BLOCK_SIZE];

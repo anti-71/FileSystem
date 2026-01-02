@@ -281,7 +281,7 @@ int DiskManager::AllocateInode()
 }
 
 // 初始化 Inode
-bool DiskManager::InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id)
+bool DiskManager::InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id, uint32_t uid, uint32_t gid)
 {
     Inode newNode;
     // 1. 清空内存，确保 padding 和未使用的指针为 0
@@ -292,6 +292,8 @@ bool DiskManager::InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id)
     newNode.size = 0;
     newNode.block_count = 1; // 初始占用 1 个块
     newNode.direct_ptr[0] = block_id;
+    newNode.owner_id = uid;   // 记录该文件属于哪个用户
+    newNode.group_id = gid;   // 记录该文件属于哪个组
     newNode.reader_count = 0; // 初始没有读者
     newNode.is_writing = 0;   // 初始没有写者
     // 3. 将 Inode 写入磁盘

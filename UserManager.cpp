@@ -15,9 +15,7 @@ void UserManager::SaveUsersToFile(SystemContext &ctx)
     }
     // 遍历 UserList 中的每一个用户
     for (const auto &user : ctx.uList)
-    {
-        outFile << user.userId << "\n";
-    }
+        outFile << user.userId << " " << user.groupId << "\n";
     outFile.close();
 }
 
@@ -26,33 +24,27 @@ void UserManager::LoadUsers(SystemContext &ctx)
 {
     std::ifstream inFile(filename);
     if (!inFile)
-    {
         return;
-    }
     ctx.uList.clear(); // 先清空当前列表，防止重复
-    int id;
-    while (inFile >> id)
+    int uid, gid;
+    while (inFile >> uid >> gid)
     {
         User tempUser;
-        tempUser.userId = id;
+        tempUser.userId = uid;
+        tempUser.groupId = gid;
         ctx.uList.push_back(tempUser);
     }
-    // while (inFile >> id >> age) { ... }
     inFile.close();
 }
 
 // 切换用户
 void UserManager::SwitchUser(SystemContext &ctx, const std::vector<std::string> &args)
 {
-    if (args.size() < 2)
-    {
-        std::cout << "用法: su <用户ID>" << std::endl;
-        return;
-    }
-    int targetId;
+    int targetId, targetGroupId;
     try
     {
         targetId = std::stoi(args[1]);
+        targetGroupId = std::stoi(args[2]);
     }
     catch (...)
     {
@@ -60,35 +52,47 @@ void UserManager::SwitchUser(SystemContext &ctx, const std::vector<std::string> 
         return;
     }
     // 1. 在 uList 中查找用户是否存在
-    auto it = std::find_if(ctx.uList.begin(), ctx.uList.end(),
-                           [targetId](const User &u)
-                           {
-                               return u.userId == targetId;
-                           });
-    // 2. 如果没找到，则添加到列表中
-    if (it == ctx.uList.end())
+    auto it = std::find_if(ctx.uList.begin(), ctx.uList.end(), [targetId](const User &u)
+                           { return u.userId == targetId; });
+    // 2. 找到用户，比对 GID，若没找到，增加用户
+    if (it != ctx.uList.end())
     {
-        AddUser(ctx, targetId);
-    }
-    // 3. 执行切换逻辑
-    ctx.currentUser.userId = targetId;
-    std::cout << "身份已切换至: ";
-    if (ctx.currentUser.userId == 0)
-    {
-        std::cout << "管理员";
+        if (it->groupId != targetGroupId && ctx.currentUser.groupId == GID_ROOT && targetGroupId != GID_ROOT)
+        {
+            std::cout << "修改 ID 为" << targetId << " 的组身份从 " << it->groupId << " 变更为 " << targetGroupId << std::endl;
+            it->groupId = targetGroupId; // 更新列表中的组信息
+        }
+        else if (it->groupId != targetGroupId && ctx.currentUser.groupId == GID_ROOT)
+        {
+            std::cout << "错误：无法将用户修改为管理员！" << std::endl;
+            return;
+        }
+        else if (it->groupId != targetGroupId)
+        {
+            std::cout << "错误：当前用户组身份无权限修改组身份！" << std::endl;
+            return;
+        }
+        ctx.currentUser = *it; // 赋值给当前会话
     }
     else
-    {
+        AddUser(ctx, targetId, targetGroupId);
+    // 3. 执行切换逻辑
+    std::cout << "身份已切换至: ";
+    if (ctx.currentUser.groupId == GID_ROOT)
+        std::cout << "管理员";
+    else if (ctx.currentUser.groupId == GID_USERS)
         std::cout << "用户" << ctx.currentUser.userId;
-    }
+    else if (ctx.currentUser.groupId == GID_GUEST)
+        std::cout << "访客" << ctx.currentUser.userId;
     std::cout << std::endl;
 }
 
 // 添加用户
-void UserManager::AddUser(SystemContext &ctx, int targetId)
+void UserManager::AddUser(SystemContext &ctx, int targetId, int targetGroupId)
 {
     User newUser;
     newUser.userId = targetId;
+    newUser.groupId = targetGroupId;
     ctx.uList.push_back(newUser);
-    std::cout << "检测到新用户，已自动创建 UID: " << targetId << std::endl;
+    std::cout << "检测到新用户，已自动创建 UID: " << targetId << " GID: " << targetGroupId << std::endl;
 }

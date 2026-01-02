@@ -29,7 +29,7 @@ public:
     bool ReadInode(uint32_t inode_id, Inode &node);
     bool WriteInode(uint32_t inode_id, const Inode &node);
     int AllocateInode();
-    bool InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id);
+    bool InitInode(uint32_t inode_id, uint32_t mode, uint32_t block_id, uint32_t uid, uint32_t gid);
     bool FreeInode(uint32_t inode_id);
 
     void DumpBitmapOccupiedPart();
