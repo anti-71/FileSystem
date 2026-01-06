@@ -265,7 +265,8 @@ bool FileManager::WriteFile(const std::string &name, const std::string &content)
     }
     Inode node;
     disk->ReadInode(inodeId, node);
-    if (node.mode != 1)
+    uint32_t fileType = node.mode >> 9;
+    if (fileType != 1) 
     { // 确认是文件而非目录
         std::cerr << "错误：不能向目录写入内容！" << std::endl;
         return false;

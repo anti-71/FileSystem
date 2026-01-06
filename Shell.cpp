@@ -228,6 +228,13 @@ void Shell::ExecuteRM(const std::string &filename, DirectoryManager &dirm, FileM
         std::cerr << "错误: 无法删除 '" << filename << "': 没有那个文件或目录！" << std::endl;
         return;
     }
+    // 检查目标文件本身的写权限
+    // 只有拥有该文件的写权限（或是所有者/Root），才能执行删除操作
+    if (!fm.HasPermission(inodeId, PERM_W, ctx.currentUser))
+    {
+        std::cerr << "权限拒绝：您没有文件 '" << filename << "' 的写权限，无法删除！" << std::endl;
+        return;
+    }
     // 3. 申请写权限
     if (!lm.RequestAccess(inodeId, true))
     {
@@ -309,6 +316,7 @@ void Shell::ExecuteWrite(const std::string &filename, const std::string &content
     // 4. 申请写权限
     if (lm.RequestAccess(inodeId, true))
     {
+        std::this_thread::sleep_for(std::chrono::seconds(10)); // 模拟写大文件耗时
         // 5. 执行实际的写入操作
         fm.WriteFile(filename, content);
         // 6. 操作完成后必须释放权限
